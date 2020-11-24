@@ -11,41 +11,53 @@ WHITE = (1, 1, 1)
 RED = (1, 0, 0)
 
 class SchedulingVisualizer:
-    def __init__(self, scheduling_algorithm, taskset=[]):
+    def __init__(self, scheduling_algorithm, taskset=[], size=(30, 15), miss_width=0.3, duration=-1):
 
         self.scheduling_algorithm = scheduling_algorithm
         self.taskset = taskset
         self.hyper_period = -1
+        self.size = size
+        self.miss_width = miss_width
+        self.duration = duration
 
     def visualization(self):
-        hyper_period = self.get_hyper_period()
+        if(self.duration == -1):
+            self.duration = self.get_hyper_period()
         jobset_list = []
         for task in self.taskset:
-            jobset_list.append(self.get_jobset(task, hyper_period))
+            jobset_list.append(self.get_jobset(task, self.duration))
 
         fig, ax = plt.subplots()
         ax.set_ylim(0,3)
-        ax.set_xticks(np.arange(0, hyper_period,1))
         ax.set_xlabel("Time")
         ax.xaxis.grid()
+        fig.set_size_inches(self.size[0], self.size[1])
 
         if(self.scheduling_algorithm == "preemptive_DM"):
             print("Working")
-            scheduling_units = self.preemptive_DM(jobset_list, hyper_period)
+            scheduling_units = self.preemptive_DM(jobset_list, self.duration)
         elif(self.scheduling_algorithm == "non_preemptive_DM"):
-            scheduling_units = self.non_preemptive_DM(jobset_list, hyper_period)
+            scheduling_units = self.non_preemptive_DM(jobset_list, self.duration)
         else:
-            print("Wrong algorithm name!")
+            print("Wrong algorithm name! ( preemptive_DM / non_preemptie_DM )")
             exit()
 
+        miss_units = []
         for unit in scheduling_units:
-            print(unit.start, unit.end, unit.label)
+            print(round(unit.start,3), round(unit.end,3), self.erase_newline(unit.label))
 
-            if(unit.label == "Miss"):
-                ax.text(unit.end, 1.5, unit.label, ha='left', va='center', fontsize=20)
-            else:
-                ax.text(unit.start + (unit.end-unit.start)/2, 1.5, unit.label, ha='center', va='center', fontsize=15)
-            ax.broken_barh([(unit.start + 0.05, unit.end - unit.start - 0.05)], (1.4, 0.2),
+            if("Miss" in unit.label):
+                miss_units.append(unit)
+                continue
+            elif(unit.label == "none"):
+                continue
+            ax.text(unit.start + (unit.end-unit.start)/2, 1.5, unit.label, ha='center', va='center', fontsize=15)
+            barh = ax.broken_barh([(unit.start, unit.end - unit.start)], (1.4, 0.2), color=[unit.color])
+            barh.set_edgecolor("black")
+            barh.set_linewidth(4)
+        for unit in miss_units:
+            ax.text(unit.end, 1.8, unit.label, ha='left', va='center', fontsize=20)
+            ax.broken_barh([(unit.start, unit.end - unit.start)], (1.2, 0.6),
                            edgecolor="black", color=[unit.color])
 
         plt.show()
@@ -55,7 +67,7 @@ class SchedulingVisualizer:
 
         return
 
-    def preemptive_DM(self, jobset_list, hyper_period, time_quanta=0.1):
+    def preemptive_DM(self, jobset_list, hyper_period, time_quanta=0.01):
         t = 0
 
         scheduling_units = []
@@ -66,12 +78,7 @@ class SchedulingVisualizer:
             if(DEBUG):
                 print("t:",t)
                 print("Prev:", prev_unit.start, prev_unit.end, prev_unit.task_id, prev_unit.label)
-            if (t >= hyper_period):
-                break
-            deadline_jobs = self.find_deadline_equal_to_time(jobset_list, t)
-            if (len(deadline_jobs) > 0):
-                scheduling_units.append(cur_unit)
-                scheduling_units.append(Unit(t, t + 0.3, task_id=-1, label="Miss", color=RED))
+            if (t > hyper_period+time_quanta):
                 break
 
             arrival_jobs = self.find_arrival_time_smaller_or_equal_to_time(jobset_list, t+time_quanta-0.02)
@@ -88,6 +95,16 @@ class SchedulingVisualizer:
             cur_unit.label = cur_job.label
             cur_unit.task_id = cur_job.task_id
             cur_unit.color = cur_job.color
+
+            deadline_jobs = self.find_deadline_equal_to_time(jobset_list, t)
+            if (len(deadline_jobs) > 0 and cur_job.miss==False):
+                cur_job.miss = True
+                miss_label = self.erase_newline(cur_unit.label) + " Miss"
+                scheduling_units.append(cur_unit)
+                scheduling_units.append(Unit(t, t + self.miss_width,
+                                             task_id=-1,
+                                             label=miss_label,
+                                             color=RED))
 
             if(cur_unit.label == "none" and prev_unit.label == "none"):
                 cur_unit.start = -1
@@ -125,7 +142,7 @@ class SchedulingVisualizer:
 
         return scheduling_units
 
-    def non_preemptive_DM(self, jobset_list, hyper_period, time_quanta=0.1):
+    def non_preemptive_DM(self, jobset_list, duration, time_quanta=0.01):
         t = 0
 
         scheduling_units = []
@@ -137,14 +154,8 @@ class SchedulingVisualizer:
             if (DEBUG):
                 print("t:", t)
                 print("Prev:", prev_unit.start, prev_unit.end, prev_unit.task_id, prev_unit.label)
-            if (t >= hyper_period):
+            if (t > duration+time_quanta):
                 break
-            deadline_jobs = self.find_deadline_equal_to_time(jobset_list, t)
-            if (len(deadline_jobs) > 0):
-                scheduling_units.append(cur_unit)
-                scheduling_units.append(Unit(t, t + 0.3, task_id=-1, label="Miss", color=RED))
-                break
-
             if(is_prev_job_finished==True):
                 arrival_jobs = self.find_arrival_time_smaller_or_equal_to_time(jobset_list, t + time_quanta - 0.02)
                 if (DEBUG):
@@ -164,6 +175,16 @@ class SchedulingVisualizer:
                     is_prev_job_finished = True
                 else:
                     is_prev_job_finished = False
+
+            deadline_jobs = self.find_deadline_equal_to_time(jobset_list, t)
+            if (len(deadline_jobs) > 0 and cur_job.miss==False):
+                cur_job.miss = True
+                miss_label = self.erase_newline(cur_unit.label) + " Miss"
+                scheduling_units.append(cur_unit)
+                scheduling_units.append(Unit(t, t + self.miss_width,
+                                             task_id=-1,
+                                             label=miss_label,
+                                             color=RED))
 
 
             if (cur_unit.label == "none" and prev_unit.label == "none"):
@@ -205,6 +226,8 @@ class SchedulingVisualizer:
 
         return scheduling_units
 
+    def erase_newline(self, text):
+        return text.replace("\n","")
 
     def add_task(self, task):
         self.taskset.append(task)
@@ -223,7 +246,7 @@ class SchedulingVisualizer:
     def get_jobset(self, task, hyper_period):
         number_of_job = hyper_period//task.min_arrival_time
         jobset = []
-        arrival_time = 0
+        arrival_time = task.jitter
         base_label = task.label
         for n in range(number_of_job):
             jobset.append(
